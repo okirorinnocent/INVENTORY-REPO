@@ -1,0 +1,5 @@
+{
+  "name": "StockSmart - E-Commerce & Inventory Management",
+  "description": "An AI-powered application to track business stock, analyze sales, and provide business ideas to help entrepreneurs make money.",
+  "requestFramePermissions": ["microphone"]
+}
