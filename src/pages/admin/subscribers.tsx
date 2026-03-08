@@ -19,9 +19,15 @@ export function AdminSubscribers() {
     try {
       const res = await fetch('/api/subscribers');
       const data = await res.json();
-      setSubscribers(data);
+      if (Array.isArray(data)) {
+        setSubscribers(data);
+      } else {
+        console.error('Failed to fetch subscribers:', data);
+        setSubscribers([]);
+      }
     } catch (error) {
       console.error('Failed to fetch subscribers', error);
+      setSubscribers([]);
     } finally {
       setLoading(false);
     }

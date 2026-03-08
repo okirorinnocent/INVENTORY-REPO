@@ -1,5 +1,6 @@
 import React, { useState, useRef, useEffect } from 'react';
 import { Send, Bot, User, Loader2 } from 'lucide-react';
+import { GoogleGenAI } from '@google/genai';
 
 interface Message {
   role: 'user' | 'model';
@@ -32,14 +33,27 @@ export function AdminChat() {
     setIsLoading(true);
 
     try {
-      const res = await fetch('/api/ai/chat', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ message: userMsg, history: messages })
+      let formattedHistory = messages.map((msg: any) => ({
+        role: msg.role === 'model' ? 'model' : 'user',
+        parts: [{ text: msg.text }]
+      }));
+
+      // Gemini requires the first message to be from the user
+      if (formattedHistory.length > 0 && formattedHistory[0].role === 'model') {
+        formattedHistory.shift();
+      }
+
+      const ai = new GoogleGenAI({ apiKey: process.env.GEMINI_API_KEY });
+      const chat = ai.chats.create({
+        model: 'gemini-3.1-pro-preview',
+        history: formattedHistory,
+        config: {
+          systemInstruction: 'You are an expert business advisor helping an entrepreneur grow their e-commerce and inventory business. Be concise, practical, and encouraging.',
+        }
       });
-      
-      const data = await res.json();
-      setMessages(prev => [...prev, { role: 'model', text: data.reply }]);
+
+      const response = await chat.sendMessage({ message: userMsg });
+      setMessages(prev => [...prev, { role: 'model', text: response.text || 'No response.' }]);
     } catch (error) {
       console.error(error);
       setMessages(prev => [...prev, { role: 'model', text: 'Sorry, I encountered an error while processing your request.' }]);

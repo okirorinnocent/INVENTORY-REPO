@@ -22,8 +22,19 @@ export function AdminInventory() {
   }, []);
 
   const fetchProducts = async () => {
-    const res = await fetch('/api/products');
-    setProducts(await res.json());
+    try {
+      const res = await fetch('/api/products');
+      const data = await res.json();
+      if (Array.isArray(data)) {
+        setProducts(data);
+      } else {
+        console.error('Failed to fetch products:', data);
+        setProducts([]);
+      }
+    } catch (error) {
+      console.error('Error fetching products:', error);
+      setProducts([]);
+    }
   };
 
   const handleDelete = async (id: number) => {
@@ -37,13 +48,19 @@ export function AdminInventory() {
     const formData = new FormData(e.currentTarget);
     const productData = Object.fromEntries(formData.entries());
     
+    const payload = {
+      ...productData,
+      price: parseFloat(productData.price as string),
+      stock: parseInt(productData.stock as string, 10)
+    };
+    
     const url = isEditing ? `/api/products/${isEditing.id}` : '/api/products';
     const method = isEditing ? 'PUT' : 'POST';
 
     await fetch(url, {
       method,
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify(productData)
+      body: JSON.stringify(payload)
     });
 
     setIsEditing(null);

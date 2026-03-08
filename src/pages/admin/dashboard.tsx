@@ -1,6 +1,7 @@
 import { useState, useEffect } from 'react';
 import { BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, LineChart, Line } from 'recharts';
 import { DollarSign, ShoppingBag, AlertTriangle, TrendingUp } from 'lucide-react';
+import { GoogleGenAI } from '@google/genai';
 
 export function AdminDashboard() {
   const [data, setData] = useState<any>(null);
@@ -16,16 +17,38 @@ export function AdminDashboard() {
   const getInsights = async () => {
     setLoadingInsights(true);
     try {
-      const res = await fetch('/api/ai/insights', { method: 'POST' });
-      const data = await res.json();
-      setInsights(data.insights);
+      const [productsRes, ordersRes] = await Promise.all([
+        fetch('/api/products'),
+        fetch('/api/orders')
+      ]);
+      const products = await productsRes.json();
+      const orders = await ordersRes.json();
+
+      const prompt = `
+        Analyze this business data and tell me what customers need most, what I should stock more of, and how I can improve to make more money.
+        
+        Products: ${JSON.stringify(products)}
+        Recent Orders: ${JSON.stringify(orders.slice(0, 50))}
+        
+        Provide a concise, actionable business advice summary.
+      `;
+
+      const ai = new GoogleGenAI({ apiKey: process.env.GEMINI_API_KEY });
+      const response = await ai.models.generateContent({
+        model: 'gemini-3.1-pro-preview',
+        contents: prompt,
+      });
+
+      setInsights(response.text || 'No insights generated.');
     } catch (e) {
       console.error(e);
+      setInsights('Failed to generate insights.');
     }
     setLoadingInsights(false);
   };
 
   if (!data) return <div className="p-8 text-center text-neutral-500">Loading dashboard...</div>;
+  if (data.error) return <div className="p-8 text-center text-red-500">Error: {data.error}</div>;
 
   return (
     <div className="p-8 max-w-7xl mx-auto space-y-8">
@@ -37,7 +60,7 @@ export function AdminDashboard() {
       <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
         <StatCard 
           title="Total Revenue" 
-          value={`$${data.totalSales.toFixed(2)}`} 
+          value={`$${(data.totalSales || 0).toFixed(2)}`} 
           icon={<DollarSign className="text-emerald-500" />} 
           trend="+12.5%" 
         />

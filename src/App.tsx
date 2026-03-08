@@ -7,21 +7,24 @@ import { AdminChat } from './pages/admin/chat';
 import { AdminIdeas } from './pages/admin/ideas';
 import { AdminSubscribers } from './pages/admin/subscribers';
 import { VoiceAssistant } from './pages/voice';
-import { Layout } from './components/layout';
+import { AdminLayout } from './components/layout';
 
 export default function App() {
   return (
     <BrowserRouter>
       <Routes>
-        <Route path="/" element={<Layout />}>
-          <Route index element={<Storefront />} />
-          <Route path="admin" element={<AdminDashboard />} />
-          <Route path="admin/inventory" element={<AdminInventory />} />
-          <Route path="admin/orders" element={<AdminOrders />} />
-          <Route path="admin/subscribers" element={<AdminSubscribers />} />
-          <Route path="admin/chat" element={<AdminChat />} />
-          <Route path="admin/ideas" element={<AdminIdeas />} />
-          <Route path="voice" element={<VoiceAssistant />} />
+        {/* Customer Routes */}
+        <Route path="/" element={<Storefront />} />
+        <Route path="/voice" element={<VoiceAssistant />} />
+
+        {/* Admin Routes */}
+        <Route path="/admin" element={<AdminLayout />}>
+          <Route index element={<AdminDashboard />} />
+          <Route path="inventory" element={<AdminInventory />} />
+          <Route path="orders" element={<AdminOrders />} />
+          <Route path="subscribers" element={<AdminSubscribers />} />
+          <Route path="chat" element={<AdminChat />} />
+          <Route path="ideas" element={<AdminIdeas />} />
         </Route>
       </Routes>
     </BrowserRouter>

@@ -1,5 +1,6 @@
 import React, { useState, useEffect } from 'react';
-import { ShoppingCart, Search, Plus, Minus, Trash2, ArrowRight, Mail } from 'lucide-react';
+import { ShoppingCart, Search, Plus, Minus, Trash2, ArrowRight, Mail, Download } from 'lucide-react';
+import { Link } from 'react-router';
 
 interface Product {
   id: number;
@@ -24,14 +25,43 @@ export function Storefront() {
   const [loading, setLoading] = useState(true);
   const [newsletterEmail, setNewsletterEmail] = useState('');
   const [subscribeStatus, setSubscribeStatus] = useState<'idle' | 'loading' | 'success' | 'error'>('idle');
+  const [hasSubscribed, setHasSubscribed] = useState(false);
+  
+  const [customerName, setCustomerName] = useState('');
+  const [customerEmail, setCustomerEmail] = useState('');
+  const [customerAddress, setCustomerAddress] = useState('');
+  const [deferredPrompt, setDeferredPrompt] = useState<any>(null);
 
   useEffect(() => {
+    window.addEventListener('beforeinstallprompt', (e) => {
+      e.preventDefault();
+      setDeferredPrompt(e);
+    });
+
     fetch('/api/products')
-      .then(res => res.json())
+      .then(res => {
+        if (!res.ok) throw new Error('Failed to fetch products');
+        return res.json();
+      })
       .then(data => {
-        setProducts(data);
+        if (Array.isArray(data)) {
+          setProducts(data);
+        } else {
+          console.error('Invalid products data:', data);
+          setProducts([]);
+        }
+        setLoading(false);
+      })
+      .catch(err => {
+        console.error(err);
+        setProducts([]);
         setLoading(false);
       });
+      
+    const subscribed = localStorage.getItem('has_subscribed');
+    if (subscribed === 'true') {
+      setHasSubscribed(true);
+    }
   }, []);
 
   const addToCart = (product: Product) => {
@@ -63,14 +93,19 @@ export function Storefront() {
 
   const checkout = async () => {
     if (cart.length === 0) return;
+    if (!customerName || !customerEmail || !customerAddress) {
+      alert('Please fill in all delivery details.');
+      return;
+    }
     
     try {
       const res = await fetch('/api/orders', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
-          customer_name: 'Guest Customer',
-          customer_email: 'guest@example.com',
+          customer_name: customerName,
+          customer_email: customerEmail,
+          customer_address: customerAddress,
           items: cart.map(item => ({ product_id: item.id, quantity: item.quantity }))
         })
       });
@@ -78,6 +113,9 @@ export function Storefront() {
       if (res.ok) {
         setCart([]);
         setIsCartOpen(false);
+        setCustomerName('');
+        setCustomerEmail('');
+        setCustomerAddress('');
         alert('Order placed successfully!');
         // Refresh products to show updated stock
         const productsRes = await fetch('/api/products');
@@ -101,6 +139,16 @@ export function Storefront() {
     return matchesSearch && matchesCategory;
   });
 
+  const handleInstallClick = async () => {
+    if (deferredPrompt) {
+      deferredPrompt.prompt();
+      const { outcome } = await deferredPrompt.userChoice;
+      if (outcome === 'accepted') {
+        setDeferredPrompt(null);
+      }
+    }
+  };
+
   const cartTotal = cart.reduce((sum, item) => sum + item.price * item.quantity, 0);
 
   const handleSubscribe = async (e: React.FormEvent) => {
@@ -118,10 +166,21 @@ export function Storefront() {
       if (res.ok) {
         setSubscribeStatus('success');
         setNewsletterEmail('');
+        localStorage.setItem('has_subscribed', 'true');
+        setHasSubscribed(true);
         setTimeout(() => setSubscribeStatus('idle'), 3000);
       } else {
-        setSubscribeStatus('error');
-        setTimeout(() => setSubscribeStatus('idle'), 3000);
+        const data = await res.json();
+        if (data.error === 'Email already subscribed') {
+          setSubscribeStatus('success');
+          setNewsletterEmail('');
+          localStorage.setItem('has_subscribed', 'true');
+          setHasSubscribed(true);
+          setTimeout(() => setSubscribeStatus('idle'), 3000);
+        } else {
+          setSubscribeStatus('error');
+          setTimeout(() => setSubscribeStatus('idle'), 3000);
+        }
       }
     } catch (err) {
       setSubscribeStatus('error');
@@ -152,17 +211,28 @@ export function Storefront() {
           </div>
         </div>
         
-        <button 
-          className="relative p-3 bg-neutral-900 text-white rounded-full hover:bg-neutral-800 transition-transform hover:scale-105 shadow-lg shadow-neutral-900/20"
-          onClick={() => setIsCartOpen(true)}
-        >
-          <ShoppingCart size={20} />
-          {cart.length > 0 && (
-            <span className="absolute -top-2 -right-2 bg-red-500 text-white text-[11px] font-bold w-6 h-6 rounded-full flex items-center justify-center border-2 border-white">
-              {cart.reduce((sum, item) => sum + item.quantity, 0)}
-            </span>
+        <div className="flex items-center gap-4">
+          {deferredPrompt && (
+            <button 
+              onClick={handleInstallClick}
+              className="hidden sm:flex items-center gap-2 bg-neutral-100 hover:bg-neutral-200 text-neutral-900 px-4 py-2 rounded-full font-medium transition-colors"
+            >
+              <Download size={18} />
+              <span className="text-sm font-bold">Install App</span>
+            </button>
           )}
-        </button>
+          <button 
+            className="relative p-3 bg-neutral-900 text-white rounded-full hover:bg-neutral-800 transition-transform hover:scale-105 shadow-lg shadow-neutral-900/20"
+            onClick={() => setIsCartOpen(true)}
+          >
+            <ShoppingCart size={20} />
+            {cart.length > 0 && (
+              <span className="absolute -top-2 -right-2 bg-red-500 text-white text-[11px] font-bold w-6 h-6 rounded-full flex items-center justify-center border-2 border-white">
+                {cart.reduce((sum, item) => sum + item.quantity, 0)}
+              </span>
+            )}
+          </button>
+        </div>
       </header>
 
       <main className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 pt-8">
@@ -223,49 +293,69 @@ export function Storefront() {
         </div>
 
         {/* Product Grid */}
-        <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-8 mb-20">
-          {filteredProducts.map(product => (
-            <div key={product.id} className="group bg-white rounded-3xl border border-neutral-100 overflow-hidden hover:shadow-2xl hover:shadow-neutral-200/50 transition-all duration-500 flex flex-col">
-              <div className="h-64 bg-neutral-100 relative overflow-hidden">
-                <img 
-                  src={product.image || `https://picsum.photos/seed/${product.id}/400/400`} 
-                  alt={product.name} 
-                  className="w-full h-full object-cover group-hover:scale-110 transition-transform duration-700 ease-out"
-                  referrerPolicy="no-referrer"
-                />
-                <div className="absolute inset-0 bg-black/0 group-hover:bg-black/10 transition-colors duration-500" />
-                
-                {product.stock < 10 && product.stock > 0 && (
-                  <div className="absolute top-4 left-4 bg-orange-500/90 backdrop-blur-sm text-white text-xs font-bold px-3 py-1.5 rounded-full shadow-sm">
-                    Only {product.stock} left
-                  </div>
-                )}
-                {product.stock === 0 && (
-                  <div className="absolute inset-0 bg-white/70 backdrop-blur-sm flex items-center justify-center">
-                    <span className="bg-neutral-900 text-white font-bold px-6 py-3 rounded-full text-sm shadow-lg">Out of Stock</span>
-                  </div>
-                )}
+        <div className="relative mb-20">
+          {!hasSubscribed && (
+            <div className="absolute inset-0 z-10 bg-white/60 backdrop-blur-md flex flex-col items-center justify-center rounded-3xl border border-neutral-200 p-8 text-center">
+              <div className="w-16 h-16 bg-neutral-900 rounded-full flex items-center justify-center mb-6 shadow-xl">
+                <Mail size={32} className="text-white" />
               </div>
-              
-              <div className="p-6 flex-1 flex flex-col">
-                <div className="text-xs font-bold text-neutral-400 uppercase tracking-widest mb-2">{product.category}</div>
-                <h3 className="text-xl font-bold text-neutral-900 leading-tight mb-3 group-hover:text-neutral-700 transition-colors">{product.name}</h3>
-                <p className="text-sm text-neutral-500 line-clamp-2 mb-6 flex-1 leading-relaxed">{product.description}</p>
+              <h3 className="text-3xl font-black text-neutral-900 mb-4 tracking-tight">Members Only</h3>
+              <p className="text-lg text-neutral-600 max-w-md mb-8">
+                Subscribe to our newsletter below to unlock the collection and start shopping.
+              </p>
+              <button 
+                onClick={() => window.scrollTo({ top: document.body.scrollHeight, behavior: 'smooth' })}
+                className="bg-neutral-900 text-white px-8 py-4 rounded-full font-bold hover:bg-neutral-800 transition-transform hover:scale-105 shadow-lg"
+              >
+                Subscribe Now
+              </button>
+            </div>
+          )}
+          
+          <div className={`grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-8 ${!hasSubscribed ? 'opacity-30 pointer-events-none' : ''}`}>
+            {filteredProducts.map(product => (
+              <div key={product.id} className="group bg-white rounded-3xl border border-neutral-100 overflow-hidden hover:shadow-2xl hover:shadow-neutral-200/50 transition-all duration-500 flex flex-col">
+                <div className="h-64 bg-neutral-100 relative overflow-hidden">
+                  <img 
+                    src={product.image || `https://picsum.photos/seed/${product.id}/400/400`} 
+                    alt={product.name} 
+                    className="w-full h-full object-cover group-hover:scale-110 transition-transform duration-700 ease-out"
+                    referrerPolicy="no-referrer"
+                  />
+                  <div className="absolute inset-0 bg-black/0 group-hover:bg-black/10 transition-colors duration-500" />
+                  
+                  {product.stock < 10 && product.stock > 0 && (
+                    <div className="absolute top-4 left-4 bg-orange-500/90 backdrop-blur-sm text-white text-xs font-bold px-3 py-1.5 rounded-full shadow-sm">
+                      Only {product.stock} left
+                    </div>
+                  )}
+                  {product.stock === 0 && (
+                    <div className="absolute inset-0 bg-white/70 backdrop-blur-sm flex items-center justify-center">
+                      <span className="bg-neutral-900 text-white font-bold px-6 py-3 rounded-full text-sm shadow-lg">Out of Stock</span>
+                    </div>
+                  )}
+                </div>
                 
-                <div className="flex items-center justify-between mt-auto pt-4 border-t border-neutral-100">
-                  <span className="text-2xl font-black text-neutral-900">${(product.price).toFixed(2)}</span>
-                  <button 
-                    onClick={() => addToCart(product)}
-                    disabled={product.stock === 0}
-                    className="bg-neutral-100 text-neutral-900 px-5 py-2.5 rounded-full text-sm font-bold hover:bg-neutral-900 hover:text-white transition-all duration-300 disabled:opacity-50 disabled:cursor-not-allowed flex items-center gap-2"
-                  >
-                    <Plus size={16} />
-                    Add
-                  </button>
+                <div className="p-6 flex-1 flex flex-col">
+                  <div className="text-xs font-bold text-neutral-400 uppercase tracking-widest mb-2">{product.category}</div>
+                  <h3 className="text-xl font-bold text-neutral-900 leading-tight mb-3 group-hover:text-neutral-700 transition-colors">{product.name}</h3>
+                  <p className="text-sm text-neutral-500 line-clamp-2 mb-6 flex-1 leading-relaxed">{product.description}</p>
+                  
+                  <div className="flex items-center justify-between mt-auto pt-4 border-t border-neutral-100">
+                    <span className="text-2xl font-black text-neutral-900">${(product.price).toFixed(2)}</span>
+                    <button 
+                      onClick={() => addToCart(product)}
+                      disabled={product.stock === 0}
+                      className="bg-neutral-100 text-neutral-900 px-5 py-2.5 rounded-full text-sm font-bold hover:bg-neutral-900 hover:text-white transition-all duration-300 disabled:opacity-50 disabled:cursor-not-allowed flex items-center gap-2"
+                    >
+                      <Plus size={16} />
+                      Add
+                    </button>
+                  </div>
                 </div>
               </div>
-            </div>
-          ))}
+            ))}
+          </div>
         </div>
 
         {/* Newsletter Section */}
@@ -305,6 +395,16 @@ export function Storefront() {
           </div>
         </div>
       </main>
+
+      {/* Footer */}
+      <footer className="border-t border-neutral-200 bg-white py-8 mt-12">
+        <div className="max-w-7xl mx-auto px-6 flex flex-col md:flex-row justify-between items-center gap-4">
+          <p className="text-neutral-500 text-sm font-medium">© 2026 STOCKSMART. All rights reserved.</p>
+          <div className="flex gap-4">
+            <Link to="/admin" className="text-neutral-400 hover:text-neutral-900 text-sm font-bold transition-colors">Admin Portal &rarr;</Link>
+          </div>
+        </div>
+      </footer>
 
       {/* Cart Drawer */}
       {isCartOpen && (
@@ -357,6 +457,29 @@ export function Storefront() {
             
             {cart.length > 0 && (
               <div className="p-6 border-t border-neutral-200 bg-neutral-50">
+                <div className="space-y-3 mb-6">
+                  <h3 className="font-semibold text-neutral-900">Delivery Details</h3>
+                  <input
+                    type="text"
+                    placeholder="Full Name"
+                    value={customerName}
+                    onChange={(e) => setCustomerName(e.target.value)}
+                    className="w-full px-4 py-2 rounded-lg border border-neutral-200 focus:outline-none focus:ring-2 focus:ring-neutral-900"
+                  />
+                  <input
+                    type="email"
+                    placeholder="Email Address"
+                    value={customerEmail}
+                    onChange={(e) => setCustomerEmail(e.target.value)}
+                    className="w-full px-4 py-2 rounded-lg border border-neutral-200 focus:outline-none focus:ring-2 focus:ring-neutral-900"
+                  />
+                  <textarea
+                    placeholder="Delivery Address"
+                    value={customerAddress}
+                    onChange={(e) => setCustomerAddress(e.target.value)}
+                    className="w-full px-4 py-2 rounded-lg border border-neutral-200 focus:outline-none focus:ring-2 focus:ring-neutral-900 resize-none h-20"
+                  />
+                </div>
                 <div className="flex justify-between items-center mb-4">
                   <span className="text-neutral-500">Total</span>
                   <span className="text-2xl font-bold text-neutral-900">${cartTotal.toFixed(2)}</span>

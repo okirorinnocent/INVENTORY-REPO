@@ -29,6 +29,7 @@ db.exec(`
     id INTEGER PRIMARY KEY AUTOINCREMENT,
     customer_name TEXT NOT NULL,
     customer_email TEXT,
+    customer_address TEXT,
     total_amount REAL NOT NULL,
     status TEXT DEFAULT 'pending',
     created_at DATETIME DEFAULT CURRENT_TIMESTAMP
@@ -50,6 +51,13 @@ db.exec(`
     created_at DATETIME DEFAULT CURRENT_TIMESTAMP
   );
 `);
+
+// Add customer_address column if it doesn't exist (migration)
+try {
+  db.exec('ALTER TABLE orders ADD COLUMN customer_address TEXT');
+} catch (e) {
+  // Column already exists
+}
 
 // Seed some initial data if empty
 const count = db.prepare('SELECT COUNT(*) as count FROM products').get() as { count: number };
@@ -74,17 +82,25 @@ async function startServer() {
   });
 
   app.post('/api/products', (req, res) => {
-    const { name, description, price, stock, category, image } = req.body;
-    const stmt = db.prepare('INSERT INTO products (name, description, price, stock, category, image) VALUES (?, ?, ?, ?, ?, ?)');
-    const info = stmt.run(name, description, price, stock, category, image);
-    res.json({ id: info.lastInsertRowid });
+    try {
+      const { name, description, price, stock, category, image } = req.body;
+      const stmt = db.prepare('INSERT INTO products (name, description, price, stock, category, image) VALUES (?, ?, ?, ?, ?, ?)');
+      const info = stmt.run(name, description, price, stock, category, image);
+      res.json({ id: info.lastInsertRowid });
+    } catch (error: any) {
+      res.status(400).json({ error: error.message });
+    }
   });
 
   app.put('/api/products/:id', (req, res) => {
-    const { name, description, price, stock, category, image } = req.body;
-    const stmt = db.prepare('UPDATE products SET name = ?, description = ?, price = ?, stock = ?, category = ?, image = ? WHERE id = ?');
-    stmt.run(name, description, price, stock, category, image, req.params.id);
-    res.json({ success: true });
+    try {
+      const { name, description, price, stock, category, image } = req.body;
+      const stmt = db.prepare('UPDATE products SET name = ?, description = ?, price = ?, stock = ?, category = ?, image = ? WHERE id = ?');
+      stmt.run(name, description, price, stock, category, image, req.params.id);
+      res.json({ success: true });
+    } catch (error: any) {
+      res.status(400).json({ error: error.message });
+    }
   });
 
   app.delete('/api/products/:id', (req, res) => {
@@ -144,7 +160,7 @@ async function startServer() {
   });
 
   app.post('/api/orders', (req, res) => {
-    const { customer_name, customer_email, items } = req.body;
+    const { customer_name, customer_email, customer_address, items } = req.body;
     
     let total_amount = 0;
     
@@ -158,8 +174,8 @@ async function startServer() {
         total_amount += product.price * item.quantity;
       }
 
-      const orderStmt = db.prepare('INSERT INTO orders (customer_name, customer_email, total_amount) VALUES (?, ?, ?)');
-      const orderInfo = orderStmt.run(customer_name, customer_email, total_amount);
+      const orderStmt = db.prepare('INSERT INTO orders (customer_name, customer_email, customer_address, total_amount) VALUES (?, ?, ?, ?)');
+      const orderInfo = orderStmt.run(customer_name, customer_email, customer_address || null, total_amount);
       const orderId = orderInfo.lastInsertRowid;
 
       const itemStmt = db.prepare('INSERT INTO order_items (order_id, product_id, quantity, price) VALUES (?, ?, ?, ?)');
@@ -183,108 +199,29 @@ async function startServer() {
   });
 
   app.get('/api/analytics', (req, res) => {
-    const totalSales = db.prepare('SELECT SUM(total_amount) as total FROM orders').get() as any;
-    const orderCount = db.prepare('SELECT COUNT(*) as count FROM orders').get() as any;
-    const lowStock = db.prepare('SELECT COUNT(*) as count FROM products WHERE stock < 20').get() as any;
-    
-    // Sales by day for the last 7 days
-    const salesByDay = db.prepare(`
-      SELECT date(created_at) as date, SUM(total_amount) as sales
-      FROM orders
-      GROUP BY date(created_at)
-      ORDER BY date DESC
-      LIMIT 7
-    `).all();
-
-    res.json({
-      totalSales: totalSales.total || 0,
-      orderCount: orderCount.count || 0,
-      lowStock: lowStock.count || 0,
-      salesByDay: salesByDay.reverse()
-    });
-  });
-
-  // AI Endpoints
-  const ai = new GoogleGenAI({ apiKey: process.env.GEMINI_API_KEY });
-
-  app.post('/api/ai/insights', async (req, res) => {
     try {
-      const products = db.prepare('SELECT name, stock, price, category FROM products').all();
-      const orders = db.prepare('SELECT * FROM orders ORDER BY created_at DESC LIMIT 50').all();
+      const totalSales = db.prepare('SELECT SUM(total_amount) as total FROM orders').get() as any;
+      const orderCount = db.prepare('SELECT COUNT(*) as count FROM orders').get() as any;
+      const lowStock = db.prepare('SELECT COUNT(*) as count FROM products WHERE stock < 20').get() as any;
       
-      const prompt = `
-        Analyze this business data and tell me what customers need most, what I should stock more of, and how I can improve to make more money.
-        
-        Products: ${JSON.stringify(products)}
-        Recent Orders: ${JSON.stringify(orders)}
-        
-        Provide a concise, actionable business advice summary.
-      `;
+      // Sales by day for the last 7 days
+      const salesByDay = db.prepare(`
+        SELECT date(created_at) as date, SUM(total_amount) as sales
+        FROM orders
+        GROUP BY date(created_at)
+        ORDER BY date DESC
+        LIMIT 7
+      `).all();
 
-      const response = await ai.models.generateContent({
-        model: 'gemini-3.1-pro-preview',
-        contents: prompt,
+      res.json({
+        totalSales: totalSales?.total || 0,
+        orderCount: orderCount?.count || 0,
+        lowStock: lowStock?.count || 0,
+        salesByDay: salesByDay.reverse()
       });
-
-      res.json({ insights: response.text });
     } catch (error: any) {
-      console.error('AI Error:', error);
-      res.status(500).json({ error: 'Failed to generate insights' });
-    }
-  });
-
-  app.post('/api/ai/ideas', async (req, res) => {
-    try {
-      const { query } = req.body;
-      const prompt = `
-        I am an unemployed entrepreneur looking to make money. 
-        Based on current trends and the following query: "${query || 'general business ideas'}", 
-        give me 3 innovative business ideas that I can apply to my e-commerce/inventory app.
-        Use Google Search to find recent trends and data to support these ideas.
-      `;
-
-      const response = await ai.models.generateContent({
-        model: 'gemini-3-flash-preview',
-        contents: prompt,
-        config: {
-          tools: [{ googleSearch: {} }]
-        }
-      });
-
-      res.json({ ideas: response.text });
-    } catch (error: any) {
-      console.error('AI Error:', error);
-      res.status(500).json({ error: 'Failed to generate ideas' });
-    }
-  });
-
-  app.post('/api/ai/chat', async (req, res) => {
-    try {
-      const { message, history } = req.body;
-      
-      let formattedHistory = history.map((msg: any) => ({
-        role: msg.role === 'model' ? 'model' : 'user',
-        parts: [{ text: msg.text }]
-      }));
-
-      // Gemini requires the first message to be from the user
-      if (formattedHistory.length > 0 && formattedHistory[0].role === 'model') {
-        formattedHistory.shift();
-      }
-
-      const chat = ai.chats.create({
-        model: 'gemini-3.1-pro-preview',
-        history: formattedHistory,
-        config: {
-          systemInstruction: 'You are an expert business advisor helping an entrepreneur grow their e-commerce and inventory business. Be concise, practical, and encouraging.',
-        }
-      });
-
-      const response = await chat.sendMessage({ message });
-      res.json({ reply: response.text });
-    } catch (error: any) {
-      console.error('AI Error:', error);
-      res.status(500).json({ error: 'Failed to chat' });
+      console.error('Analytics Error:', error);
+      res.status(500).json({ error: 'Failed to fetch analytics' });
     }
   });
 
@@ -295,6 +232,18 @@ async function startServer() {
       appType: 'spa',
     });
     app.use(vite.middlewares);
+    
+    app.use('*', async (req, res, next) => {
+      try {
+        const fs = await import('fs');
+        let template = await fs.promises.readFile(path.resolve(__dirname, 'index.html'), 'utf-8');
+        template = await vite.transformIndexHtml(req.originalUrl, template);
+        res.status(200).set({ 'Content-Type': 'text/html' }).end(template);
+      } catch (e: any) {
+        vite.ssrFixStacktrace(e);
+        next(e);
+      }
+    });
   } else {
     app.use(express.static('dist'));
     app.get('*', (req, res) => {

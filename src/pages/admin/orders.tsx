@@ -15,6 +15,7 @@ interface Order {
   id: number;
   customer_name: string;
   customer_email: string;
+  customer_address?: string;
   total_amount: number;
   status: string;
   created_at: string;
@@ -31,8 +32,19 @@ export function AdminOrders() {
   }, []);
 
   const fetchOrders = async () => {
-    const res = await fetch('/api/orders');
-    setOrders(await res.json());
+    try {
+      const res = await fetch('/api/orders');
+      const data = await res.json();
+      if (Array.isArray(data)) {
+        setOrders(data);
+      } else {
+        console.error('Failed to fetch orders:', data);
+        setOrders([]);
+      }
+    } catch (error) {
+      console.error('Error fetching orders:', error);
+      setOrders([]);
+    }
   };
 
   const updateOrderStatus = async (id: number, status: string) => {
@@ -150,6 +162,23 @@ export function AdminOrders() {
                 {expandedOrderId === order.id && (
                   <tr className="bg-neutral-50/50 border-b border-neutral-200">
                     <td colSpan={6} className="p-6">
+                      <div className="grid grid-cols-1 md:grid-cols-2 gap-8 mb-6">
+                        <div>
+                          <h4 className="text-sm font-bold text-neutral-900 uppercase tracking-wider mb-2">Customer Details</h4>
+                          <div className="bg-white p-4 rounded-xl border border-neutral-100 shadow-sm">
+                            <p className="font-medium text-neutral-900">{order.customer_name}</p>
+                            <p className="text-sm text-neutral-500">{order.customer_email}</p>
+                          </div>
+                        </div>
+                        <div>
+                          <h4 className="text-sm font-bold text-neutral-900 uppercase tracking-wider mb-2">Delivery Address</h4>
+                          <div className="bg-white p-4 rounded-xl border border-neutral-100 shadow-sm">
+                            <p className="text-sm text-neutral-700 whitespace-pre-wrap">
+                              {order.customer_address || 'No address provided'}
+                            </p>
+                          </div>
+                        </div>
+                      </div>
                       <h4 className="text-sm font-bold text-neutral-900 uppercase tracking-wider mb-4">Order Items</h4>
                       <div className="space-y-4">
                         {order.items.map(item => (

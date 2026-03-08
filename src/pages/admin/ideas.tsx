@@ -1,5 +1,6 @@
 import React, { useState } from 'react';
 import { Lightbulb, Search, Loader2 } from 'lucide-react';
+import { GoogleGenAI } from '@google/genai';
 
 export function AdminIdeas() {
   const [query, setQuery] = useState('');
@@ -10,13 +11,23 @@ export function AdminIdeas() {
     e.preventDefault();
     setIsLoading(true);
     try {
-      const res = await fetch('/api/ai/ideas', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ query })
+      const prompt = `
+        I am an unemployed entrepreneur looking to make money. 
+        Based on current trends and the following query: "${query || 'general business ideas'}", 
+        give me 3 innovative business ideas that I can apply to my e-commerce/inventory app.
+        Use Google Search to find recent trends and data to support these ideas.
+      `;
+
+      const ai = new GoogleGenAI({ apiKey: process.env.GEMINI_API_KEY });
+      const response = await ai.models.generateContent({
+        model: 'gemini-3-flash-preview',
+        contents: prompt,
+        config: {
+          tools: [{ googleSearch: {} }]
+        }
       });
-      const data = await res.json();
-      setIdeas(data.ideas);
+
+      setIdeas(response.text || 'No ideas generated.');
     } catch (error) {
       console.error(error);
       setIdeas('Failed to generate ideas. Please try again.');
