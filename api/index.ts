@@ -35,6 +35,16 @@ const SubscriberSchema = new mongoose.Schema({
 });
 const Subscriber = mongoose.models.Subscriber || mongoose.model('Subscriber', SubscriberSchema);
 
+const ProductSchema = new mongoose.Schema({
+    name: { type: String, required: true },
+    description: String,
+    price: { type: Number, required: true },
+    stock: { type: Number, required: true, default: 0 },
+    category: String,
+    image: String,
+});
+const Product = mongoose.models.Product || mongoose.model('Product', ProductSchema);
+
 // --- API Routes ---
 
 // 1. Receive Orders (for customers)
@@ -83,6 +93,42 @@ app.post('/api/subscribe', async (req, res) => {
     }
 });
 
+// 4. Product Management (Inventory)
+app.get('/api/products', async (req, res) => {
+    try {
+        const products = await Product.find();
+        res.json(products);
+    } catch (error) {
+        res.status(500).json({ error: 'Failed to fetch products' });
+    }
+});
+
+app.post('/api/products', async (req, res) => {
+    try {
+        const product = await Product.create(req.body);
+        res.status(201).json(product);
+    } catch (error) {
+        res.status(500).json({ error: 'Failed to create product' });
+    }
+});
+
+app.put('/api/products/:id', async (req, res) => {
+    try {
+        const product = await Product.findByIdAndUpdate(req.params.id, req.body, { new: true });
+        res.json(product);
+    } catch (error) {
+        res.status(500).json({ error: 'Failed to update product' });
+    }
+});
+
+app.delete('/api/products/:id', async (req, res) => {
+    try {
+        await Product.findByIdAndDelete(req.params.id);
+        res.json({ message: 'Product deleted' });
+    } catch (error) {
+        res.status(500).json({ error: 'Failed to delete product' });
+    }
+});
+
 // Export the app for Vercel
 export default app;
-
